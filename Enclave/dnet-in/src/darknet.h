@@ -207,6 +207,13 @@ size_t rand_size_t();
 float rand_normal();
 float rand_uniform(float min, float max);
 
+float network_accuracy_multi(network *net, data d, int n);
+
+// 新增：分层推理相关函数声明
+float *network_predict_partial_inside(network *net, float *input, int split_layer);
+matrix network_predict_data_split(network *net, data test, int split_layer);
+float *network_accuracies_split(network *net, data d, int n, int split_layer);
+
 #ifdef __cplusplus
 }
 #endif

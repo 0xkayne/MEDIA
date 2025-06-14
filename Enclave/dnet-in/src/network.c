@@ -729,10 +729,94 @@ float network_accuracy(network *net, data d)
     return acc;
 }
 
+// 新增：部分网络推理（只在enclave内执行前split_layer层）
+float *network_predict_partial_inside(network *net, float *input, int split_layer)
+{
+    network orig = *net;
+    net->input = input;
+    net->truth = 0;
+    net->train = 0;
+    net->delta = 0;
+    
+    // 只执行前split_layer层
+    for (int i = 0; i < split_layer && i < net->n; ++i) {
+        net->index = i;
+        layer l = net->layers[i];
+        if (l.delta) {
+            fill_cpu(l.outputs * l.batch, 0, l.delta, 1);
+        }
+        l.forward(l, *net);
+        net->input = l.output;
+        if (l.truth) {
+            net->truth = l.output;
+        }
+    }
+    
+    // 返回中间结果
+    float *intermediate = net->layers[split_layer-1].output;
+    *net = orig;
+    return intermediate;
+}
+
+// 新增：分层网络推理
+matrix network_predict_data_split(network *net, data test, int split_layer)
+{
+    int i, j, b;
+    int k = net->outputs;
+    matrix pred = make_matrix(test.X.rows, k);
+    float *X = calloc(net->batch * test.X.cols, sizeof(float));
+    
+    for (i = 0; i < test.X.rows; i += net->batch) {
+        for (b = 0; b < net->batch; ++b) {
+            if (i + b == test.X.rows) break;
+            memcpy(X + b * test.X.cols, test.X.vals[i + b], test.X.cols * sizeof(float));
+        }
+        
+        // 在enclave内执行前split_layer层
+        float *intermediate = network_predict_partial_inside(net, X, split_layer);
+        int intermediate_size = net->layers[split_layer-1].outputs * net->batch;
+        
+        // 通过ocall在enclave外完成剩余推理
+        float *final_output = calloc(k * net->batch, sizeof(float));
+        ocall_network_predict_remaining(intermediate, intermediate_size, split_layer, 
+                                      net->batch, final_output, k * net->batch);
+        
+        // 保存最终结果
+        for (b = 0; b < net->batch; ++b) {
+            if (i + b == test.X.rows) break;
+            for (j = 0; j < k; ++j) {
+                pred.vals[i + b][j] = final_output[j + b * k];
+            }
+        }
+        
+        free(final_output);
+    }
+    free(X);
+    return pred;
+}
+
 float *network_accuracies(network *net, data d, int n)
 {
     static float acc[2];
     matrix guess = network_predict_data(net, d);
+    acc[0] = matrix_topk_accuracy(d.y, guess, 1);
+    acc[1] = matrix_topk_accuracy(d.y, guess, n);
+    free_matrix(guess);
+    return acc;
+}
+
+// 新增：支持分层推理的准确率计算
+float *network_accuracies_split(network *net, data d, int n, int split_layer)
+{
+    static float acc[2];
+    matrix guess;
+    
+    if (split_layer > 0 && split_layer < net->n) {
+        guess = network_predict_data_split(net, d, split_layer);
+    } else {
+        guess = network_predict_data(net, d);
+    }
+    
     acc[0] = matrix_topk_accuracy(d.y, guess, 1);
     acc[1] = matrix_topk_accuracy(d.y, guess, n);
     free_matrix(guess);

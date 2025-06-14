@@ -1,5 +1,3 @@
-
-
 /* Enclave.edl - Top EDL file. */
 
 
@@ -29,5 +27,13 @@ enclave {
         void ocall_fwrite([in,size=size,count=nmemb]void *ptr, size_t size, size_t nmemb);
            
         void ocall_print_string([in, string] const char *str);
+        
+        // 新增：分层网络推理的ocall
+        void ocall_network_predict_remaining([in, size=intermediate_size] float *intermediate_data,
+                                           int intermediate_size,
+                                           int split_layer,
+                                           int batch_size,
+                                           [out, size=output_size] float *final_output,
+                                           int output_size);
     };
 };
