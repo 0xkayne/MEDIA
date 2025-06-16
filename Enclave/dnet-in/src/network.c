@@ -776,12 +776,16 @@ matrix network_predict_data_split(network *net, data test, int split_layer)
         float *intermediate = network_predict_partial_inside(net, X, split_layer);
         int intermediate_size = net->layers[split_layer-1].outputs * net->batch;
         
+        printf("Inference in enclave successfully\n");
+        printf("intermediate_size: %d\n", intermediate_size);
         // 通过ocall在enclave外完成剩余推理
+        printf("Calling ocall_network_predict_remaining\n");
         float *final_output = calloc(k * net->batch, sizeof(float));
         ocall_network_predict_remaining(intermediate, intermediate_size, split_layer, 
                                       net->batch, final_output, k * net->batch);
         
         // 保存最终结果
+        printf("final_output: %f\n", final_output[0]);
         for (b = 0; b < net->batch; ++b) {
             if (i + b == test.X.rows) break;
             for (j = 0; j < k; ++j) {
